@@ -1,0 +1,406 @@
+#!/usr/bin/python
+
+import os
+import sys
+import subprocess
+import shutil
+import signal
+from datetime import datetime as datetime
+import json
+import requests
+import traceback
+
+########################
+## CONSTANTS AND VARS ##
+########################
+
+# Default value to be replaced at runtime
+mode = "BackMeUp"
+operation = None
+
+ROOT_PATH = os.path.dirname(os.path.abspath( __file__ ))
+LOG_FILE = "/BackMeUp.log"
+MKV_LOG_FILE = "/makemkv.log"
+TRANSCODE_LOG_FILE = "/transcode-video.log"
+TITLES_LOG_FILE = "/titles.log"
+LOCK_FILE = "/.BackMeUp.lock"
+PREFS_FILE = "/preferences.json"
+README_FILE = "/README"
+
+###########
+## MODES ##
+###########
+
+# copy
+# Using MakeMKV and HandBrakeCLI, rip and compress the disc in the cdrom tray
+def copy(args=None):
+  ##############
+  # Detect DVD #
+  ##############
+  dvdName = detectDvd()
+
+  ###########################
+  # Create Output Directory #
+  ###########################
+  operation = "Create Output Directory"
+  log("Creating directory", operation, True)
+
+  output_dir = getPreference("output-dir")
+  os.chdir(output_dir)
+  if os.path.isdir(dvdName):
+    exit(1, "Directory '" + dvdName + "' already exists")
+  os.makedirs(dvdName)
+
+  #######
+  # Rip #
+  #######
+  titles = rip(dvdName)
+
+  ############
+  # Compress #
+  ############
+  operation = "Compress"
+  log("Compressing '" + dvdName + "'", operation, True)
+
+  # Create a folder for compressed titles
+  os.makedirs("compressed")
+
+  for t in titles:
+    # Locate the subtitle track to force, if any
+    forcedTrack = findForcedSubs(t)
+
+    # Compress the current title into the "compressed" folder
+    compressTitle(dvdName, t, forcedTrack)
+
+  # All titles have been compressed
+
+  ##########
+  # FINISH #
+  ##########
+  # Remove the "compressed" folder
+  shutil.rmtree("compressed")
+
+  # Send notification
+  notify("Successfully copied " + dvdName, "Finished Copying")
+
+
+# update
+# Update a key-value pair in preferences.json
+def update(key, value):
+  file = open(ROOT_PATH + PREFS_FILE, "r+")
+  json_str = file.read()
+  prefs = json.loads(json_str)
+
+  if not key in prefs:
+    errmsg = "Key '" + key + "' not found"
+    raise KeyError(errmsg)
+
+  prefs[key] = value
+  json_str = json.dumps(prefs)
+
+  file.seek(0)
+  file.write(json_str)
+  file.truncate()
+
+  file.close()
+
+  log("Updated key '" + key + "'", "Update Preferences", True)
+
+#############
+## HELPERS ##
+#############
+
+# detectDvd
+# Check the tray for DVDs and return the name if any
+def detectDvd():
+  operation = "Detect DVD"
+  log("Checking DVD tray", operation, True)
+
+  dvdName = subprocess.check_output("lsblk --nodeps /dev/cdrom -o LABEL", shell=True).splitlines()[1]
+  if not dvdName:
+    log("No DVDs found", operation, True)
+    exit(0)
+  log("Found DVD: " + dvdName, operation, True)
+
+  # Check the last copied DVD, cancel if there is a match
+  if dvdName == checkLastTitle():
+    log("Already copied " + dvdName + " - Skipping", output=True)
+    exit(0)
+
+  logTitle(dvdName)
+
+  return dvdName
+
+# rip
+# Copy the dvd using makemkv
+def rip(dvdName):
+  output_dir = getPreference("output-dir")
+  os.chdir(output_dir + "/" + dvdName)
+
+  operation = "Rip"
+  log("Attempting to rip '" + dvdName + "'", operation, True)
+
+  minlength = getPreference("min-length")
+  log_path = getPreference("log-dir")
+  subprocess.call("makemkvcon mkv disc:0 all . --cache=1024 --noscan --minlength=" + str(minlength) + " --decrypt >> " + log_path + MKV_LOG_FILE, shell=True)
+
+  titles = [name for name in os.listdir(".") if ".mkv" in name]
+  titles.sort()
+  numTitles = len(titles)
+  if numTitles == 0:
+    exit(1, "No titles copied")
+  log(str(numTitles) + " titles copied", operation, True)
+
+  return titles
+
+# findForcedSubs
+# Find the smallest subtitle file and determine if it should be forced
+def findForcedSubs(t):
+
+
+    log("Locating forced subtitles for '" + t + "'", operation, True)
+    title = t.replace(".mkv", "")
+
+    # List all subtitle tracks for this title
+    # Extract the track number only for use in the next step
+    try:
+      subTracks = subprocess.check_output("mkvinfo " + t + " | grep -B 3 -A 5 'subtitle' | grep -B 7 -A 1 'Language: eng' | grep -o 'track ID for mkvmerge & mkvextract: [0-9]*' | grep -o '[0-9]*'", shell=True).splitlines()
+    except subprocess.CalledProcessError:
+      # subprocess will throw error for non-zero exit status if no results from grep
+      # Just move along if this happens
+      subTracks = []
+      pass
+
+    for s in subTracks:
+      subprocess.call("mkvextract tracks " + t + " " + s + ":" + title + "-" + s + ".sub > /dev/null", shell=True)
+      log("Found track " + title + "-" + s, operation, True)
+
+    # Compare the file size of all extracted subtitle tracks
+    # If one track is significantly smaller (<1/5) than the largest,
+    # it is likely the "forced" track for foreign audio portions,
+    # which is usually less than 20% of all dialogue
+    largestSize = 0       # Size of largest file
+    largestTrack = None   # Track number of largest file
+    smallestSize = 0      # Size of smallest file
+    smallestTrack = None    # Track number of smallest file
+
+    # Look at each file
+    for s in subTracks:
+      track = title + "-" + s + ".sub"
+      size = os.path.getsize(track)
+
+      # If this is larger than the current largest, set the new largest
+      if size > largestSize:
+        largestSize = size
+        largestTrack = s
+      # If this is smaller than the current smallest, set the new smallest
+      if smallestSize == 0 or size < smallestSize:
+        smallestSize = size
+        smallestTrack = s
+
+    forcedTrack = None
+    # Compare largest and smallest for size difference
+    # If found a "forced" track, store it
+    if smallestTrack and smallestSize < (largestSize / 5):
+      log("Forcing track " + title + "-" + smallestTrack, operation, True)
+      forcedTrack = smallestTrack
+    else:
+      log("No forced track found for " + title, operation, True)
+
+    # Delete the extracted subtitle files
+    subs = [name for name in os.listdir(".") if (".sub" in name or ".idx" in name)]
+    for s in subs:
+      os.remove(s)
+
+    return forcedTrack
+
+def compressTitle(dvdName, t, forcedTrack):
+  output_dir = getPreference("output-dir")
+  os.chdir(output_dir + "/" + dvdName)
+
+  log_path = getPreference("log-dir")
+
+  if forcedTrack:
+    log("Attempting to compress '" + t + "' with forced subtitles", operation, True)
+    subprocess.call("transcode-video --quick --target small --add-subtitle eng --force-subtitle " + forcedTrack + " -o 'compressed/" + t + "' '" + t + "' >> " + log_path + TRANSCODE_LOG_FILE, shell=True)
+    log("Finished compressing '" + t + "'", operation, True)
+  else:
+    log("Attempting to compress '" + t + "'", operation, True)
+    subprocess.call("transcode-video --quick --target small --add-subtitle eng -o 'compressed/" + t + "' '" + t + "' >> " + log_path + TRANSCODE_LOG_FILE, shell=True)
+    log("Finished compressing '" + t + "'", operation, True)
+
+  # Remove the uncompressed file
+  os.remove(t)
+
+  # Move compressed title out of the "compressed" folder
+  os.rename("compressed/" + t, t)
+
+
+###############
+## FUNCTIONS ##
+###############
+
+# lock
+# Create a lock file to prevent program execution
+def lock():
+  open(ROOT_PATH + LOCK_FILE, "w+").close()
+
+# unlock
+# Remove the lock file to allow program execution
+def unlock():
+  if isLocked():
+    os.remove(ROOT_PATH + LOCK_FILE)
+
+# isLocked
+# Check if program execution is locked
+def isLocked():
+  return os.path.isfile(ROOT_PATH + LOCK_FILE)
+
+# logTitle
+# Log the current title to prevent multiple copies
+def logTitle(title):
+  path = getPreference("log-dir")
+  file = open(path + TITLES_LOG_FILE, "a+")
+  file.write(title + "\n")
+  file.close()
+
+# checkLastTitle
+# Check the most recently logged title
+def checkLastTitle():
+  path = getPreference("log-dir")
+  file = open(path + TITLES_LOG_FILE, "r")
+  lines = file.readlines()
+  return lines[len(lines) - 1].rstrip("\n\r")
+
+# log
+# Write a message to the log file
+def log(message, operation=None, output=False):
+  if output:
+    print message
+
+  logmsg = datetime.now().strftime("%Y-%m-%d %H:%M:%S") + " - "
+  if operation != None:
+    logmsg += operation + " - "
+  logmsg += message
+  logmsg += "\n"
+
+  path = getPreference("log-dir")
+  file = open(path + LOG_FILE, "a+")
+  file.write(logmsg)
+  file.close()
+
+# notify
+# Send a push notification via Pushover
+def notify(message, title=None):
+  if not title:
+    title = "Nick's Media Studio"
+
+  appToken = getPreference("pushover-app-token")
+  userToken = getPreference("pushover-user-token")
+  url = "https://api.pushover.net/1/messages.json"
+
+  data = {
+              "token": appToken,
+              "user": userToken,
+              "title": title,
+              "message": message
+            }
+
+  r = requests.post(url, data)
+
+# getPreference
+# Get the value of a preference in preferences.json
+def getPreference(key):
+  file = open(ROOT_PATH + PREFS_FILE, "r")
+  json_str = file.read()
+
+  prefs = json.loads(json_str)
+
+  if not key in prefs:
+    errmsg = "Key '" + key + "' not found"
+    raise KeyError(errmsg)
+
+  return prefs[key]
+
+# sigint
+# Handle a program cancellation with Ctrl+C
+def sigint(signum, frame):
+  exit(130)
+
+# exit
+# Use instead of sys.exit
+# Exit the program gracefully with the proper message
+def exit(code=0, message=None, traceback=None):
+  if code == 0:
+    log("Finished", output=True)
+
+    unlock()
+  if code == 1:
+    if message:
+      log(message, "Error", True)
+
+    if traceback:
+      log(traceback, "Traceback", True)
+
+    if mode == "copy":
+      notify("BackMeUp encountered an error: " + message, "Copy Failed")
+
+    log("Exiting", output=True)
+
+    unlock()
+  elif code == 2:
+    print "usage: BackMeUp [mode]"
+    print "modes: copy [options]"
+    print "          update [preference] [value]"
+    print "          help"
+
+    unlock()
+  elif code == 126:
+    print "BackMeUp is already running"
+  elif code == 130:
+    print ""
+    print "Terminating"
+
+    log("Execution terminated with Ctrl+C")
+
+    if mode == "copy":
+      notify("BackMeUp was terminated", "Copy Cancelled")
+
+    unlock()
+
+  sys.exit(code)
+
+
+##########
+## MAIN ##
+##########
+
+# Register signal for program cancellation with Ctrl+C
+signal.signal(signal.SIGINT, sigint)
+signal.signal(signal.SIGTERM, sigint)
+
+# main
+if __name__ == "__main__":
+
+  if isLocked():
+    exit(126)
+
+  lock()
+
+  if len(sys.argv) == 1:
+    exit(2)
+
+  mode = sys.argv[1];
+  try:
+    if mode == "copy":
+      copy(sys.argv[2:])
+    elif mode == "update":
+      if len(sys.argv) != 4:
+        exit(2)
+      update(sys.argv[2], sys.argv[3])
+    else:
+      exit(2)
+  except Exception as e:
+    exit(1, str(e), traceback.format_exc())
+
+  exit(0)
