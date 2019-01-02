@@ -54,6 +54,8 @@ def copy(args=None):
   #######
   # Rip #
   #######
+  notify("Copying '" + dvdName + "'", "Begin Copying")
+
   titles = rip(dvdName)
 
   ############
@@ -398,6 +400,8 @@ if __name__ == "__main__":
       if len(sys.argv) != 4:
         exit(2)
       update(sys.argv[2], sys.argv[3])
+    elif mode == "reset":
+      logTitle("RESET")
     else:
       exit(2)
   except Exception as e:
