@@ -214,7 +214,9 @@ def findForcedSubs(t):
     for s in subs:
       os.remove(s)
 
-    return forcedTrack
+    if forcedTrack:
+      return str(forcedTrack)
+    return None
 
 def compressTitle(dvdName, t, forcedTrack):
   output_dir = getPreference("output-dir")
@@ -223,7 +225,7 @@ def compressTitle(dvdName, t, forcedTrack):
   log_path = getPreference("log-dir")
 
   if forcedTrack:
-    log("Attempting to compress '" + t + "' with forced subtitles", operation, True)
+    log("Attempting to compress '" + t + "' with forced subtitle track " + forcedTrack, operation, True)
     subprocess.call("transcode-video --quick --target small --add-subtitle eng --force-subtitle " + forcedTrack + " -o 'compressed/" + t + "' '" + t + "' >> " + log_path + TRANSCODE_LOG_FILE, shell=True)
     log("Finished compressing '" + t + "'", operation, True)
   else:
