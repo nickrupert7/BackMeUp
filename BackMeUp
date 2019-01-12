@@ -144,7 +144,7 @@ def rip(dvdName):
 
   minlength = getPreference("min-length")
   log_path = getPreference("log-dir")
-  subprocess.call("makemkvcon mkv disc:0 all . --cache=1024 --noscan --minlength=" + str(minlength) + " --decrypt >> " + log_path + MKV_LOG_FILE, shell=True)
+  subprocess.call("/usr/bin/makemkvcon mkv disc:0 all . --cache=1024 --noscan --minlength=" + str(minlength) + " --decrypt >> " + log_path + MKV_LOG_FILE, shell=True)
 
   titles = [name for name in os.listdir(".") if ".mkv" in name]
   titles.sort()
@@ -166,7 +166,7 @@ def findForcedSubs(t):
     # List all subtitle tracks for this title
     # Extract the track number only for use in the next step
     try:
-      subTracks = subprocess.check_output("mkvinfo " + t + " | grep -B 3 -A 5 'subtitle' | grep -B 7 -A 1 'Language: eng' | grep -o 'track ID for mkvmerge & mkvextract: [0-9]*' | grep -o '[0-9]*'", shell=True).splitlines()
+      subTracks = subprocess.check_output("/usr/bin/mkvinfo " + t + " | grep -B 3 -A 5 'subtitle' | grep -B 7 -A 1 'Language: eng' | grep -o 'track ID for mkvmerge & mkvextract: [0-9]*' | grep -o '[0-9]*'", shell=True).splitlines()
     except subprocess.CalledProcessError:
       # subprocess will throw error for non-zero exit status if no results from grep
       # Just move along if this happens
@@ -174,7 +174,7 @@ def findForcedSubs(t):
       pass
 
     for s in subTracks:
-      subprocess.call("mkvextract tracks " + t + " " + s + ":" + title + "-" + s + ".sub > /dev/null", shell=True)
+      subprocess.call("/usr/bin/mkvextract tracks " + t + " " + s + ":" + title + "-" + s + ".sub > /dev/null", shell=True)
       log("Found track " + title + "-" + s, operation, True)
 
     # Compare the file size of all extracted subtitle tracks
@@ -226,12 +226,17 @@ def compressTitle(dvdName, t, forcedTrack):
 
   if forcedTrack:
     log("Attempting to compress '" + t + "' with forced subtitle track " + forcedTrack, operation, True)
-    subprocess.call("transcode-video --quick --target small --add-subtitle eng --force-subtitle " + forcedTrack + " -o 'compressed/" + t + "' '" + t + "' >> " + log_path + TRANSCODE_LOG_FILE, shell=True)
-    log("Finished compressing '" + t + "'", operation, True)
+    subprocess.call("/usr/local/bin/transcode-video --quick --target small --add-subtitle eng --force-subtitle " + forcedTrack + " -o 'compressed/" + t + "' '" + t + "' >> " + log_path + TRANSCODE_LOG_FILE, shell=True)
   else:
     log("Attempting to compress '" + t + "'", operation, True)
-    subprocess.call("transcode-video --quick --target small --add-subtitle eng -o 'compressed/" + t + "' '" + t + "' >> " + log_path + TRANSCODE_LOG_FILE, shell=True)
+#    command = "transcode-video --quick --target small --add-subtitle eng -o 'compressed/" + t + "' '" + t + "' >> " + log_path + TRANSCODE_LOG_FILE
+#    log(command, operation, True)
+    subprocess.call("/usr/local/bin/transcode-video --quick --target small --add-subtitle eng -o 'compressed/" + t + "' '" + t + "' >> " + log_path + TRANSCODE_LOG_FILE, shell=True)
+
+  if os.path.isfile("compressed/" + t):
     log("Finished compressing '" + t + "'", operation, True)
+  else:
+    exit(1, "'" + t + "' failed to compress")
 
   # Remove the uncompressed file
   os.remove(t)
