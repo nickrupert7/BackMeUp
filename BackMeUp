@@ -43,7 +43,7 @@ def copy(args=None):
   # Create Output Directory #
   ###########################
   operation = "Create Output Directory"
-  log("Creating directory", operation, True)
+  log("Creating directory", operation)
 
   output_dir = getPreference("output-dir")
   os.chdir(output_dir)
@@ -62,7 +62,7 @@ def copy(args=None):
   # Compress #
   ############
   operation = "Compress"
-  log("Compressing '" + dvdName + "'", operation, True)
+  log("Compressing '" + dvdName + "'", operation)
 
   # Create a folder for compressed titles
   os.makedirs("compressed")
@@ -106,7 +106,7 @@ def update(key, value):
 
   file.close()
 
-  log("Updated key '" + key + "'", "Update Preferences", True)
+  log("Updated key '" + key + "'", "Update Preferences")
 
 #############
 ## HELPERS ##
@@ -116,19 +116,19 @@ def update(key, value):
 # Check the tray for DVDs and return the name if any
 def detectDvd():
   operation = "Detect DVD"
-#  log("Checking DVD tray", operation, True)
+  log("Checking DVD tray", operation, False)
 
   dvdName = subprocess.check_output("lsblk --nodeps /dev/cdrom -o LABEL", shell=True).splitlines()[1]
   if not dvdName:
-#    log("No DVDs found", operation, True)
+    log("No DVDs found", operation, False)
     exit(3)
-  log("Found DVD: " + dvdName, operation, True)
 
   # Check the last copied DVD, cancel if there is a match
   if dvdName == checkLastTitle():
-#    log("Already copied " + dvdName + " - Skipping", output=True)
+    log("Already copied " + dvdName + " - Skipping", operation, False)
     exit(3)
 
+  log("Found DVD: " + dvdName, operation)
   logTitle(dvdName)
 
   return dvdName
@@ -140,7 +140,7 @@ def rip(dvdName):
   os.chdir(output_dir + "/" + dvdName)
 
   operation = "Rip"
-  log("Attempting to rip '" + dvdName + "'", operation, True)
+  log("Attempting to rip '" + dvdName + "'", operation)
 
   minlength = getPreference("min-length")
   log_path = getPreference("log-dir")
@@ -151,7 +151,7 @@ def rip(dvdName):
   numTitles = len(titles)
   if numTitles == 0:
     exit(1, "No titles copied")
-  log(str(numTitles) + " titles copied", operation, True)
+  log(str(numTitles) + " titles copied", operation)
 
   return titles
 
@@ -160,7 +160,7 @@ def rip(dvdName):
 def findForcedSubs(t):
 
 
-    log("Locating forced subtitles for '" + t + "'", operation, True)
+    log("Locating forced subtitles for '" + t + "'", operation)
     title = t.replace(".mkv", "")
 
     # List all subtitle tracks for this title
@@ -175,7 +175,7 @@ def findForcedSubs(t):
 
     for s in subTracks:
       subprocess.call("/usr/bin/mkvextract tracks " + t + " " + s + ":" + title + "-" + s + ".sub > /dev/null", shell=True)
-      log("Found track " + title + "-" + s, operation, True)
+      log("Found track " + title + "-" + s, operation)
 
     # Compare the file size of all extracted subtitle tracks
     # If one track is significantly smaller (<1/5) than the largest,
@@ -204,10 +204,10 @@ def findForcedSubs(t):
     # Compare largest and smallest for size difference
     # If found a "forced" track, store it
     if smallestTrack and smallestSize < (largestSize / 5):
-      log("Forcing track " + title + "-" + smallestTrack, operation, True)
+      log("Forcing track " + title + "-" + smallestTrack, operation)
       forcedTrack = smallestTrack
     else:
-      log("No forced track found for " + title, operation, True)
+      log("No forced track found for " + title, operation)
 
     # Delete the extracted subtitle files
     subs = [name for name in os.listdir(".") if (".sub" in name or ".idx" in name)]
@@ -225,16 +225,16 @@ def compressTitle(dvdName, t, forcedTrack):
   log_path = getPreference("log-dir")
 
   if forcedTrack:
-    log("Attempting to compress '" + t + "' with forced subtitle track " + forcedTrack, operation, True)
+    log("Attempting to compress '" + t + "' with forced subtitle track " + forcedTrack, operation)
     subprocess.call("/usr/local/bin/transcode-video --quick --target small --add-subtitle eng --force-subtitle " + forcedTrack + " -o 'compressed/" + t + "' '" + t + "' >> " + log_path + TRANSCODE_LOG_FILE, shell=True)
   else:
-    log("Attempting to compress '" + t + "'", operation, True)
+    log("Attempting to compress '" + t + "'", operation)
 #    command = "transcode-video --quick --target small --add-subtitle eng -o 'compressed/" + t + "' '" + t + "' >> " + log_path + TRANSCODE_LOG_FILE
 #    log(command, operation, True)
     subprocess.call("/usr/local/bin/transcode-video --quick --target small --add-subtitle eng -o 'compressed/" + t + "' '" + t + "' >> " + log_path + TRANSCODE_LOG_FILE, shell=True)
 
   if os.path.isfile("compressed/" + t):
-    log("Finished compressing '" + t + "'", operation, True)
+    log("Finished compressing '" + t + "'", operation)
   else:
     exit(1, "'" + t + "' failed to compress")
 
@@ -283,20 +283,20 @@ def checkLastTitle():
 
 # log
 # Write a message to the log file
-def log(message, operation=None, output=False):
-  if output:
-    print message
+def log(message, operation=None, logFile=True):
+  print message
 
-  logmsg = datetime.now().strftime("%Y-%m-%d %H:%M:%S") + " - "
-  if operation != None:
-    logmsg += operation + " - "
-  logmsg += message
-  logmsg += "\n"
+  if logFile:
+    logmsg = datetime.now().strftime("%Y-%m-%d %H:%M:%S") + " - "
+    if operation != None:
+      logmsg += operation + " - "
+    logmsg += message
+    logmsg += "\n"
 
-  path = getPreference("log-dir")
-  file = open(path + LOG_FILE, "a+")
-  file.write(logmsg)
-  file.close()
+    path = getPreference("log-dir")
+    file = open(path + LOG_FILE, "a+")
+    file.write(logmsg)
+    file.close()
 
 # notify
 # Send a push notification via Pushover
@@ -341,20 +341,20 @@ def sigint(signum, frame):
 # Exit the program gracefully with the proper message
 def exit(code=0, message=None, traceback=None):
   if code == 0:
-    log("Finished", output=True)
+    log("Finished")
 
     unlock()
   elif code == 1:
     if message:
-      log(message, "Error", True)
+      log(message, "Error")
 
     if traceback:
-      log(traceback, "Traceback", True)
+      log(traceback, "Traceback")
 
     if mode == "copy":
       notify("BackMeUp encountered an error: " + message, "Copy Failed")
 
-    log("Exiting", output=True)
+    log("Exiting")
 
     unlock()
   elif code == 2:
