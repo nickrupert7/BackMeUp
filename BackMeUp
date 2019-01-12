@@ -116,18 +116,18 @@ def update(key, value):
 # Check the tray for DVDs and return the name if any
 def detectDvd():
   operation = "Detect DVD"
-  log("Checking DVD tray", operation, True)
+#  log("Checking DVD tray", operation, True)
 
   dvdName = subprocess.check_output("lsblk --nodeps /dev/cdrom -o LABEL", shell=True).splitlines()[1]
   if not dvdName:
-    log("No DVDs found", operation, True)
-    exit(0)
+#    log("No DVDs found", operation, True)
+    exit(3)
   log("Found DVD: " + dvdName, operation, True)
 
   # Check the last copied DVD, cancel if there is a match
   if dvdName == checkLastTitle():
-    log("Already copied " + dvdName + " - Skipping", output=True)
-    exit(0)
+#    log("Already copied " + dvdName + " - Skipping", output=True)
+    exit(3)
 
   logTitle(dvdName)
 
@@ -344,7 +344,7 @@ def exit(code=0, message=None, traceback=None):
     log("Finished", output=True)
 
     unlock()
-  if code == 1:
+  elif code == 1:
     if message:
       log(message, "Error", True)
 
@@ -363,6 +363,9 @@ def exit(code=0, message=None, traceback=None):
     print "          update [preference] [value]"
     print "          help"
 
+    unlock()
+  elif code == 3:
+    # No DVD found OR DVD already copied
     unlock()
   elif code == 126:
     print "BackMeUp is already running"
