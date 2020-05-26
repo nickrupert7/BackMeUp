@@ -54,7 +54,7 @@ def copy(args=None):
   #######
   # Rip #
   #######
-  notify("Copying '" + dvdName + "'", "Begin Copying")
+  notify("Started copying '" + dvdName + "'", "Begin Copying")
 
   titles = rip(dvdName)
 
@@ -81,6 +81,10 @@ def copy(args=None):
   ##########
   # Remove the "compressed" folder
   shutil.rmtree("compressed")
+
+  # Move to public folder
+  os.chdir("/home/plex-media")
+  os.rename("output/" + dvdName, "public/" + dvdName)
 
   # Send notification
   notify("Successfully copied " + dvdName, "Finished Copying")
@@ -304,16 +308,12 @@ def notify(message, title=None):
   if not title:
     title = "Nick's Media Studio"
 
-  appToken = getPreference("pushover-app-token")
-  userToken = getPreference("pushover-user-token")
-  url = "https://api.pushover.net/1/messages.json"
+  webhookKey = getPreference("ifttt_webhook_key")
+  url = "https://maker.ifttt.com/trigger/backmeup_notify/with/key/" + webhookKey
 
   data = {
-              "token": appToken,
-              "user": userToken,
-              "title": title,
-              "message": message
-            }
+    "value1": message
+  }
 
   r = requests.post(url, data)
 
@@ -412,6 +412,7 @@ if __name__ == "__main__":
       update(sys.argv[2], sys.argv[3])
     elif mode == "reset":
       logTitle("RESET")
+      log("Resetting title", "Reset")
     else:
       exit(2)
   except Exception as e:
