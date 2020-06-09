@@ -309,7 +309,8 @@ def notify(message, title=None):
     title = "Nick's Media Studio"
 
   webhookKey = getPreference("ifttt_webhook_key")
-  url = "https://maker.ifttt.com/trigger/backmeup_notify/with/key/" + webhookKey
+  ifttt_event = getPreference("ifttt_event")
+  url = "https://maker.ifttt.com/trigger/" + ifttt_event + "/with/key/" + webhookKey
 
   data = {
     "value1": message

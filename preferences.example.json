@@ -1,1 +1,7 @@
-{"pushover-user-token": "", "log-dir": "/var/log/BackMeUp", "min-length": 60, "pushover-app-token": "", "output-dir": ""}
+{
+  "ifttt_event": "",
+  "ifttt_webhook_key": "",
+  "log-dir": "/var/log/BackMeUp",
+  "min-length": "60",
+  "output-dir": ""
+}
