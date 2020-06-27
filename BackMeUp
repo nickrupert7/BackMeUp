@@ -83,8 +83,9 @@ def copy(args=None):
   shutil.rmtree("compressed")
 
   # Move to public folder
-  os.chdir("/home/plex-media")
-  os.rename("output/" + dvdName, "public/" + dvdName)
+  output_dir = getPreference("output-dir").rstrip("/")
+  finish_dir = getPreference("finish-dir").rstrip("/")
+  os.rename(output_dir + "/" + dvdName, finish_dir + "/" + dvdName)
 
   # Send notification
   notify("Successfully copied " + dvdName, "Finished Copying")
