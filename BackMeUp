@@ -317,7 +317,10 @@ def notify(message, title=None):
     "value1": message
   }
 
-  r = requests.post(url, data)
+  try:
+    r = requests.post(url, data)
+  except:
+    pass
 
 # getPreference
 # Get the value of a preference in preferences.json
